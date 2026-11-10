@@ -106,6 +106,21 @@ public class AppTests
     }
 
     [Fact]
+    public async Task TotalsTooLargeForDecimalReturnOneWithAClearMessage()
+    {
+        var sink = new TestLogSink();
+        // Each amount fits in a decimal; their sum doesn't.
+        const string hugeCredit = """{ "accountId": "A", "type": "credit", "amount": 79000000000000000000000000000, "timestamp": "2026-05-10T10:00:00Z" }""";
+
+        var (exitCode, output, error) = await RunAsync([], $"[{hugeCredit}, {hugeCredit}]", sink);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal("Invalid input: an account's totals exceed the largest amount this program supports.", error.Trim());
+        Assert.Contains(sink.Entries, e => e.Level == LogLevel.Warning && e.Message == "Account totals exceeded the supported range");
+    }
+
+    [Fact]
     public async Task InvalidJsonReportsLineAndByteCountingFromOne()
     {
         var (_, _, error) = await RunAsync([], "[\n  { \"accountId\": \"A\", oops }\n]");
@@ -212,9 +227,18 @@ public class AppTests
         Assert.DoesNotContain("SECRET", error); // never shown to the user
     }
 
-    private sealed class ThrowingProcessor : ITransactionProcessor
+    [Fact]
+    public async Task OverflowFromAnywhereElseIsAnUnexpectedError()
+    {
+        var (exitCode, _, error) = await RunAsync([], ValidInput, processor: new ThrowingProcessor(new OverflowException()));
+
+        Assert.Equal(2, exitCode);
+        Assert.StartsWith("An unexpected error occurred. Reference: ", error);
+    }
+
+    private sealed class ThrowingProcessor(Exception? exception = null) : ITransactionProcessor
     {
         public Task<IReadOnlyList<Account>> ProcessAsync(IAsyncEnumerable<TransactionModel> transactions, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("failure involving ACCT-SECRET-1");
+            throw exception ?? new InvalidOperationException("failure involving ACCT-SECRET-1");
     }
 }

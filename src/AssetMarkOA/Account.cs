@@ -24,10 +24,15 @@ public class Account {
             throw new InvalidOperationException("Cannot apply a transaction whose amount isn't greater than 0.");
         }
 
-        if (tx.Type == TransactionType.credit) {
-            TotalCredits += tx.Amount;
-        } else if (tx.Type == TransactionType.debit) {
-            TotalDebits += tx.Amount;
+        // A failed addition doesn't assign, so the account is left unchanged.
+        try {
+            if (tx.Type == TransactionType.credit) {
+                TotalCredits += tx.Amount;
+            } else if (tx.Type == TransactionType.debit) {
+                TotalDebits += tx.Amount;
+            }
+        } catch (OverflowException ex) {
+            throw new AccountTotalOutOfRangeException(ex);
         }
         if (tx.Amount > LargestTransaction) {
             LargestTransaction = tx.Amount;

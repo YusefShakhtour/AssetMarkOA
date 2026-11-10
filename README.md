@@ -13,7 +13,7 @@ dotnet test                                                                 # ru
 ```
 
 - **Output:** stdout contains only the JSON result. Errors go to stderr.
-- **Exit codes:** `0` success, `1` invalid input, `2` unexpected error, `130` cancelled with Ctrl+C.
+- **Exit codes:** `0` success, `1` invalid input (including account totals too large to represent, above about 7.9 × 10²⁸), `2` unexpected error, `130` cancelled with Ctrl+C.
 - **Logs:** written to `logs/` next to the program (e.g. `src/AssetMarkOA/bin/Debug/net8.0/logs/`).
   - For full detail, set `Serilog__MinimumLevel__Default=Debug`. This writes one line per transaction, so use it only to diagnose a specific run.
   - To write logs somewhere else, set `AssetMarkOA__LogDirectory`.

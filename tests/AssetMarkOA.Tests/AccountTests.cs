@@ -94,6 +94,18 @@ public class AccountTests
         Assert.Equal(100.01m, account.LargestTransaction);
     }
 
+    [Fact]
+    public void TotalBeyondDecimalRangeThrowsWithoutChangingTheAccount()
+    {
+        var account = AccountWith("A", (TransactionType.credit, 79_000_000_000_000_000_000_000_000_000m));
+
+        Assert.Throws<AccountTotalOutOfRangeException>(() =>
+            account.Apply(Tx("A", TransactionType.credit, 79_000_000_000_000_000_000_000_000_000m)));
+
+        Assert.Equal(79_000_000_000_000_000_000_000_000_000m, account.TotalCredits);
+        Assert.Equal(1, account.TransactionCount);
+    }
+
     [Theory]
     [InlineData(TransactionType.credit, 0)]
     [InlineData(TransactionType.debit, -5)]

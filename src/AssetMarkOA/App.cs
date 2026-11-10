@@ -71,6 +71,13 @@ public sealed class App {
             logger.LogDebug("JSON error: {JsonError}", description);
             await error.WriteLineAsync($"Invalid input{location}: {description}");
             return 1;
+        } catch (AccountTotalOutOfRangeException) {
+            // Each amount fits in a decimal (larger ones are invalid rows), but an account's totals can still exceed
+            // decimal's range (about 7.9e28). No correct total exists, so the run fails with a clear message.
+            // Only this specific exception is caught: any other overflow is a bug and stays an unexpected error.
+            logger.LogWarning("Account totals exceeded the supported range");
+            await error.WriteLineAsync("Invalid input: an account's totals exceed the largest amount this program supports.");
+            return 1;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
             // The message contains the file path, which can contain a username.
             logger.LogWarning("Could not read input: {ExceptionType}", ex.GetType().Name);
