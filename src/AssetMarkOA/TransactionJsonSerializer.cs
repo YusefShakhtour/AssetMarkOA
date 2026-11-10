@@ -15,7 +15,7 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
     // Separate options so the money format only affects output; input parsing keeps the default number handling.
     private static readonly JsonSerializerOptions WriteOptions = new(JsonSerializerDefaults.Web) {
         WriteIndented = true,
-        Converters = { new TwoDecimalPlacesConverter() },
+        Converters = { new MoneyConverter() },
     };
 
     private readonly ILogger<TransactionJsonSerializer> logger;
@@ -26,7 +26,7 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
 
     // Every decimal in the output is money, so always write at least two decimal places (500 -> 500.00),
     // but never round away precision (0.006 -> 0.006): a rounded balance of 0.00 next to "overdrawn": true would contradict itself.
-    private sealed class TwoDecimalPlacesConverter : JsonConverter<decimal> {
+    private sealed class MoneyConverter : JsonConverter<decimal> {
         // Two fixed places, then up to 26 optional ones: decimal holds at most 28.
         private const string Format = "0.00##########################";
 
