@@ -93,4 +93,20 @@ public class AccountTests
 
         Assert.Equal(100.01m, account.LargestTransaction);
     }
+
+    [Theory]
+    [InlineData(TransactionType.credit, 0)]
+    [InlineData(TransactionType.debit, -5)]
+    [InlineData((TransactionType)0, 10)]
+    public void ApplyRejectsAnInvalidTransactionWithoutChangingTheAccount(TransactionType type, int amount)
+    {
+        var account = AccountWith("A", (TransactionType.credit, 100m), (TransactionType.debit, 30m));
+
+        Assert.Throws<InvalidOperationException>(() => account.Apply(Tx("A", type, amount)));
+
+        Assert.Equal(100m, account.TotalCredits);
+        Assert.Equal(30m, account.TotalDebits);
+        Assert.Equal(100m, account.LargestTransaction);
+        Assert.Equal(2, account.TransactionCount);
+    }
 }
