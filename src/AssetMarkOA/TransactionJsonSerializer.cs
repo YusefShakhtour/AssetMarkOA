@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace AssetMarkOA;
 
+// Logging rule: anything that identifies an account or contains money is logged at Debug only.
 public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
     // Web defaults: camelCase names when writing, case-insensitive names when reading.
     private static readonly JsonSerializerOptions ReadOptions = new(JsonSerializerDefaults.Web);
@@ -13,6 +16,12 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
         WriteIndented = true,
         Converters = { new TwoDecimalPlacesConverter() },
     };
+
+    private readonly ILogger<TransactionJsonSerializer> logger;
+
+    public TransactionJsonSerializer(ILogger<TransactionJsonSerializer> logger) {
+        this.logger = logger;
+    }
 
     // Every decimal in the output is money, so always write two decimal places (500 -> 500.00).
     private sealed class TwoDecimalPlacesConverter : JsonConverter<decimal> {
@@ -28,19 +37,32 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
     private sealed record RawTransaction(string? AccountId, string? Type, decimal Amount, DateTime Timestamp);
 
     public IReadOnlyList<TransactionModel> Parse(string json) {
+        logger.LogInformation("Parse started");
+        var stopwatch = Stopwatch.StartNew();
+
         var raw = JsonSerializer.Deserialize<List<RawTransaction?>>(json, ReadOptions) ?? [];
-        return raw
-            .Where(r => r is not null)
-            .Select(r => new TransactionModel {
-                AccountId = r!.AccountId ?? "",
-                // An unknown type leaves default (0), which IsValid rejects.
+        var transactions = raw
+            // A null row becomes an empty transaction, so the processor rejects it and row numbers still match the input.
+            .Select(r => r is null ? new TransactionModel() : new TransactionModel {
+                AccountId = r.AccountId ?? "",
+                // An unknown type leaves default (0), which validation rejects.
                 Type = Enum.TryParse<TransactionType>(r.Type, ignoreCase: true, out var type) ? type : default,
                 Amount = r.Amount,
                 Timestamp = r.Timestamp,
             })
             .ToList();
+
+        logger.LogInformation("Parse finished: {RowCount} rows in {ElapsedMs} ms", transactions.Count, stopwatch.ElapsedMilliseconds);
+        return transactions;
     }
 
-    public string Serialize(IReadOnlyList<AccountSummary> summaries, string? topSpender) =>
-        JsonSerializer.Serialize(new { summaries, topSpender }, WriteOptions);
+    public string Serialize(IReadOnlyList<AccountSummary> summaries, string? topSpender) {
+        logger.LogInformation("Serialize started");
+        var stopwatch = Stopwatch.StartNew();
+
+        var json = JsonSerializer.Serialize(new { summaries, topSpender }, WriteOptions);
+
+        logger.LogInformation("Serialize finished: {SummaryCount} summaries in {ElapsedMs} ms", summaries.Count, stopwatch.ElapsedMilliseconds);
+        return json;
+    }
 }

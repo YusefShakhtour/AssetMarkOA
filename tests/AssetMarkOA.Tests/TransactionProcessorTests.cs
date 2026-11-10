@@ -91,4 +91,21 @@ public class TransactionProcessorTests
         Assert.Equal(["A", "B"], Summarizer.Summarize(accounts).Select(s => s.AccountId));
         Assert.Equal("A", Summarizer.FindTopSpender(accounts));
     }
+
+    [Fact]
+    public void SkippedRowLogsIndexAndReasonWithoutValues()
+    {
+        var sink = new TestLogSink();
+        var processor = new TransactionProcessor(new TestLogger<TransactionProcessor>(sink));
+
+        processor.Process([
+            Tx("SECRET-ID", TransactionType.credit, 10m),
+            Tx("SECRET-ID", TransactionType.debit, -987.65m),
+        ]);
+
+        var entry = Assert.Single(sink.Entries, e => e.Message.StartsWith("Row"));
+        Assert.Equal("Row 1 skipped: amount must be greater than 0", entry.Message);
+        Assert.DoesNotContain("SECRET", sink.AllText);
+        Assert.DoesNotContain("987", sink.AllText);
+    }
 }
