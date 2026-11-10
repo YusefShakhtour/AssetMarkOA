@@ -69,8 +69,17 @@ public class AppTests
         var (exitCode, output, error) = await RunAsync([], stdin);
 
         Assert.Equal(1, exitCode);
-        Assert.StartsWith("Invalid input:", error);
+        Assert.StartsWith("Invalid input at line 1, byte ", error);
+        Assert.DoesNotContain("Path:", error); // the JSON path's row index can be wrong when streaming
         Assert.Empty(output);
+    }
+
+    [Fact]
+    public async Task InvalidJsonReportsLineAndByteCountingFromOne()
+    {
+        var (_, _, error) = await RunAsync([], "[\n  { \"accountId\": \"A\", oops }\n]");
+
+        Assert.StartsWith("Invalid input at line 2, byte 23: ", error);
     }
 
     [Fact]
@@ -81,16 +90,18 @@ public class AppTests
         // for some of them to be applied before it reaches the broken part.
         var validRows = string.Join(",", Enumerable.Repeat("""{ "accountId": "A", "type": "credit", "amount": 10 }""", 2_000));
 
-        var (exitCode, output, error) = await RunAsync([], $$"""[{{validRows}}, { "accountId": "B", oops""", sink);
+        var input = $$"""[{{validRows}}, { "accountId": "B", oops""";
+        var expectedLocation = $"line 1, byte {input.IndexOf("oops") + 1}";
+
+        var (exitCode, output, error) = await RunAsync([], input, sink);
 
         Assert.Equal(1, exitCode);
-        Assert.StartsWith("Invalid input:", error);
         Assert.Empty(output); // nothing is written until every row is processed
         // Streaming: rows were applied before the parser reached the broken part.
         Assert.Contains(sink.Entries, e => e.Message.StartsWith("Row 0 applied"));
-        // When streaming, the JSON path's row index counts from the start of the current chunk, not the input,
-        // so only the byte position reliably locates the error.
-        Assert.Contains(sink.Entries, e => e.Level == LogLevel.Warning && e.Message.StartsWith("Invalid JSON"));
+        // The location is exact even though the error is many chunks into the input.
+        Assert.StartsWith($"Invalid input at {expectedLocation}: ", error);
+        Assert.Contains(sink.Entries, e => e.Level == LogLevel.Warning && e.Message == $"Invalid JSON at {expectedLocation}");
     }
 
     [Theory]

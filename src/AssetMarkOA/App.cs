@@ -58,10 +58,18 @@ public sealed class App {
             await error.WriteLineAsync("Cancelled.");
             return 130;
         } catch (JsonException ex) {
-            // The message can repeat part of the input, so only its location is logged by default.
-            logger.LogWarning("Invalid JSON at path {JsonPath}, line {LineNumber}, byte {BytePosition}", ex.Path, ex.LineNumber, ex.BytePositionInLine);
-            logger.LogDebug("JSON error: {JsonError}", ex.Message);
-            error.WriteLine($"Invalid input: {ex.Message}");
+            // When streaming, the JSON path's row index counts from the start of the current ~16 KB chunk, not the input,
+            // so it can point at the wrong row. Line and byte position are always correct, so only those are reported.
+            // JsonException counts both from 0; people count from 1.
+            var location = ex.LineNumber is { } line && ex.BytePositionInLine is { } bytePosition
+                ? $" at line {line + 1}, byte {bytePosition + 1}"
+                : "";
+            var description = DescribeJsonError(ex);
+
+            // The description can repeat part of the input, so only the location is logged by default.
+            logger.LogWarning("Invalid JSON{Location}", location);
+            logger.LogDebug("JSON error: {JsonError}", description);
+            await error.WriteLineAsync($"Invalid input{location}: {description}");
             return 1;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
             // The message contains the file path, which can contain a username.
@@ -77,6 +85,13 @@ public sealed class App {
             error.WriteLine($"An unexpected error occurred. Reference: {runId}.");
             return 2;
         }
+    }
+
+    // The exception message ends with its own "Path: ... | LineNumber: ... | BytePositionInLine: ..." suffix;
+    // keep only the description in front of it.
+    private static string DescribeJsonError(JsonException ex) {
+        var suffixStart = ex.Message.IndexOf(" Path: ", StringComparison.Ordinal);
+        return suffixStart >= 0 ? ex.Message[..suffixStart] : ex.Message;
     }
 
     // Asynchronous, sequential reads: the file is read front to back once.
