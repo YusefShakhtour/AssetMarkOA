@@ -1,0 +1,13 @@
+[
+  { "accountId": "A100", "type": "credit", "amount": 500, "timestamp": "2026-05-10T10:00:00Z" },
+  { "accountId": "A100", "type": "debit", "amount": 200, "timestamp": "2026-05-10T12:00:00Z" },
+  { "accountId": "B200", "type": "debit", "amount": 50, "timestamp": "2026-05-10T11:00:00Z" },
+  { "accountId": "B200", "type": "credit", "amount": 20, "timestamp": "2026-05-10T13:00:00Z" },
+  { "accountId": " c300 ", "type": "CREDIT", "amount": 125.75, "timestamp": "2026-05-09T09:30:00Z" },
+  { "accountId": "C300", "type": "debit", "amount": 200, "timestamp": "2026-05-09T08:00:00Z" },
+  { "accountId": "", "type": "credit", "amount": 100, "timestamp": "2026-05-10T14:00:00Z" },
+  { "accountId": "D400", "type": "refund", "amount": 10, "timestamp": "2026-05-10T15:00:00Z" },
+  { "accountId": "D400", "type": "credit", "amount": -5, "timestamp": "2026-05-10T15:30:00Z" },
+  { "accountId": "D400", "type": "credit", "amount": "abc", "timestamp": "2026-05-10T15:45:00Z" },
+  { "accountId": "E500", "type": "credit", "amount": 10 }
+]
