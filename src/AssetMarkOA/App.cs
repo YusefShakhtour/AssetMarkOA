@@ -78,9 +78,10 @@ public sealed class App {
             logger.LogWarning("Account totals exceeded the supported range");
             await error.WriteLineAsync("Invalid input: an account's totals exceed the largest amount this program supports.");
             return 1;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+        } catch (IOException ex) {
+            // Opening or reading the input failed (OpenInputFile turns its other path errors into IOException).
             // The message contains the file path, which can contain a username.
-            logger.LogWarning("Could not read input: {ExceptionType}", ex.GetType().Name);
+            logger.LogWarning("Could not read input: {ExceptionType}", (ex.InnerException ?? ex).GetType().Name);
             logger.LogDebug("Read error: {ReadError}", ex.Message);
             error.WriteLine($"Could not read input: {ex.Message}");
             return 1;
@@ -102,6 +103,14 @@ public sealed class App {
     }
 
     // Asynchronous, sequential reads: the file is read front to back once.
-    private static FileStream OpenInputFile(string path) =>
-        new(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+    // A bad path (empty, a folder, no permission) throws ArgumentException or UnauthorizedAccessException here.
+    // They're wrapped as IOException so App can report "Could not read input" for exactly these, while the same
+    // exception types thrown anywhere else in a run stay unexpected errors.
+    private static FileStream OpenInputFile(string path) {
+        try {
+            return new(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        } catch (Exception ex) when (ex is ArgumentException or UnauthorizedAccessException) {
+            throw new IOException(ex.Message, ex);
+        }
+    }
 }

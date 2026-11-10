@@ -228,6 +228,25 @@ public class AppTests
     }
 
     [Fact]
+    public async Task FolderInsteadOfFileReturnsOne()
+    {
+        var (exitCode, output, error) = await RunAsync([Path.GetTempPath()]);
+
+        Assert.Equal(1, exitCode);
+        Assert.StartsWith("Could not read input:", error);
+        Assert.Empty(output);
+    }
+
+    [Fact]
+    public async Task ArgumentExceptionOutsideOpeningTheFileIsAnUnexpectedError()
+    {
+        var (exitCode, _, error) = await RunAsync([], ValidInput, processor: new ThrowingProcessor(new ArgumentException("bug")));
+
+        Assert.Equal(2, exitCode);
+        Assert.StartsWith("An unexpected error occurred. Reference: ", error);
+    }
+
+    [Fact]
     public async Task OverflowFromAnywhereElseIsAnUnexpectedError()
     {
         var (exitCode, _, error) = await RunAsync([], ValidInput, processor: new ThrowingProcessor(new OverflowException()));

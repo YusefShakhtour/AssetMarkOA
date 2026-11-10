@@ -14,8 +14,7 @@ public class Account {
     }
 
     // The processor validates input before calling this. These guards catch a programming error that would
-    // otherwise leave the totals inconsistent. InvalidOperationException, not ArgumentException, so App reports
-    // it as an unexpected error rather than as unreadable input.
+    // otherwise leave the totals inconsistent; App reports it as an unexpected error.
     public void Apply(TransactionModel tx) {
         if (!Enum.IsDefined(tx.Type)) {
             throw new InvalidOperationException("Cannot apply a transaction with an undefined type.");
