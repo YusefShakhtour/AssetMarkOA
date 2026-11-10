@@ -87,21 +87,34 @@ public class TransactionJsonTests
     }
 
     [Fact]
-    public async Task AmountsAreWrittenWithTwoDecimalPlaces()
+    public async Task AmountsAreWrittenWithAtLeastTwoDecimalPlacesAndNeverRounded()
     {
         var output = await RunAsync("""
             [
               { "accountId": "A", "type": "credit", "amount": 500, "timestamp": "2026-05-10T10:00:00Z" },
               { "accountId": "A", "type": "debit", "amount": 25.5, "timestamp": "2026-05-10T11:00:00Z" },
-              { "accountId": "A", "type": "debit", "amount": 0.005, "timestamp": "2026-05-10T12:00:00Z" }
+              { "accountId": "A", "type": "debit", "amount": 0.005, "timestamp": "2026-05-10T12:00:00Z" },
+              { "accountId": "B", "type": "credit", "amount": 10.500, "timestamp": "2026-05-10T13:00:00Z" }
             ]
             """);
 
-        Assert.Contains("\"totalCredits\": 500.00,", output);
-        Assert.Contains("\"totalDebits\": 25.51,", output);     // 25.505 rounds half away from zero
-        Assert.Contains("\"endingBalance\": 474.50,", output);  // 474.495 rounds half away from zero
-        Assert.Contains("\"largestTransaction\": 500.00,", output);
-        Assert.Contains("\"transactionCount\": 3,", output);    // ints are unaffected
+        Assert.Contains("\"totalCredits\": 500.00,", output);    // whole numbers get two places
+        Assert.Contains("\"totalDebits\": 25.505,", output);     // sub-cent precision is kept, not rounded
+        Assert.Contains("\"endingBalance\": 474.495,", output);
+        Assert.Contains("\"totalCredits\": 10.50,", output);     // trailing zeros beyond two places are dropped
+        Assert.Contains("\"transactionCount\": 3,", output);     // ints are unaffected
+    }
+
+    [Fact]
+    public async Task SubCentOverdraftIsVisibleInTheBalance()
+    {
+        var summary = JsonNode.Parse(await RunAsync("""
+            [{ "accountId": "B", "type": "debit", "amount": 0.001, "timestamp": "2026-05-10T10:00:00Z" }]
+            """))!["summaries"]![0]!;
+
+        // Rounded to cents this would print 0.00 next to "overdrawn": true.
+        Assert.Equal("-0.001", summary["endingBalance"]!.ToJsonString());
+        Assert.True((bool)summary["overdrawn"]!);
     }
 
     [Fact]

@@ -33,7 +33,7 @@ dotnet test                                                                 # ru
 - **Largest transaction** is the largest single valid amount, credit or debit.
 - **Top spender** is the account with the highest total debits. A tie goes to the lexicographically smaller ID. It is `null` if there are no debits.
 - **Output order.** Summaries are sorted by account ID.
-- **Two decimal places.** Amounts are printed with exactly two decimal places (`500.00`).
+- **At least two decimal places.** Amounts are printed with at least two decimal places (`500.00`). Sub-cent amounts keep their full precision (`0.006`) instead of being rounded, so a balance of `0.00` can never appear next to `"overdrawn": true`.
 
 ## Design choices and tradeoffs
 

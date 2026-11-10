@@ -24,14 +24,18 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
         this.logger = logger;
     }
 
-    // Every decimal in the output is money, so always write two decimal places (500 -> 500.00).
+    // Every decimal in the output is money, so always write at least two decimal places (500 -> 500.00),
+    // but never round away precision (0.006 -> 0.006): a rounded balance of 0.00 next to "overdrawn": true would contradict itself.
     private sealed class TwoDecimalPlacesConverter : JsonConverter<decimal> {
+        // Two fixed places, then up to 26 optional ones: decimal holds at most 28.
+        private const string Format = "0.00##########################";
+
         public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
             reader.GetDecimal();
 
         // InvariantCulture so a machine set to e.g. German doesn't write "500,00", which is invalid JSON.
         public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options) =>
-            writer.WriteRawValue(value.ToString("0.00", CultureInfo.InvariantCulture));
+            writer.WriteRawValue(value.ToString(Format, CultureInfo.InvariantCulture));
     }
 
     // Every field is read as a raw JSON value, so a missing or wrongly typed field can't fail the whole input.
