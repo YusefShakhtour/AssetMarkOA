@@ -46,6 +46,7 @@ public class TransactionJsonTests
     [InlineData("credit", TransactionType.credit)]
     [InlineData("DEBIT", TransactionType.debit)]
     [InlineData("refund", (TransactionType)0)]
+    [InlineData("1", (TransactionType)0)] // a number string is not a type name
     [InlineData(null, (TransactionType)0)]
     public async Task TypeIsParsedCaseInsensitivelyAndUnknownBecomesInvalid(string? type, TransactionType expected)
     {
@@ -59,8 +60,8 @@ public class TransactionJsonTests
     {
         var output = JsonNode.Parse(await RunAsync("""
             [
-              { "accountId": "A", "type": "refund", "amount": 10 },
-              { "accountId": "A", "type": "credit", "amount": 5 }
+              { "accountId": "A", "type": "refund", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" },
+              { "accountId": "A", "type": "credit", "amount": 5, "timestamp": "2026-05-10T11:00:00Z" }
             ]
             """))!;
 
@@ -72,9 +73,9 @@ public class TransactionJsonTests
     {
         var summary = JsonNode.Parse(await RunAsync("""
             [
-              { "accountId": "A", "type": "credit", "amount": 19.99 },
-              { "accountId": "A", "type": "credit", "amount": 0.01 },
-              { "accountId": "A", "type": "debit", "amount": 25.5 }
+              { "accountId": "A", "type": "credit", "amount": 19.99, "timestamp": "2026-05-10T10:00:00Z" },
+              { "accountId": "A", "type": "credit", "amount": 0.01, "timestamp": "2026-05-10T11:00:00Z" },
+              { "accountId": "A", "type": "debit", "amount": 25.5, "timestamp": "2026-05-10T12:00:00Z" }
             ]
             """))!["summaries"]![0]!;
 
@@ -90,9 +91,9 @@ public class TransactionJsonTests
     {
         var output = await RunAsync("""
             [
-              { "accountId": "A", "type": "credit", "amount": 500 },
-              { "accountId": "A", "type": "debit", "amount": 25.5 },
-              { "accountId": "A", "type": "debit", "amount": 0.005 }
+              { "accountId": "A", "type": "credit", "amount": 500, "timestamp": "2026-05-10T10:00:00Z" },
+              { "accountId": "A", "type": "debit", "amount": 25.5, "timestamp": "2026-05-10T11:00:00Z" },
+              { "accountId": "A", "type": "debit", "amount": 0.005, "timestamp": "2026-05-10T12:00:00Z" }
             ]
             """);
 
@@ -132,6 +133,90 @@ public class TransactionJsonTests
     public async Task NonArrayTopLevelIsInvalidJson(string json)
     {
         await Assert.ThrowsAsync<JsonException>(() => ToListAsync(Serializer.ParseAsync(Utf8(json))));
+    }
+
+    // Each test below puts this valid row next to the row under test, to show a bad row is skipped without stopping the run.
+    private const string ValidRow = """{ "accountId": "GOOD", "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""";
+
+    private static Task<IReadOnlyList<Account>> ProcessWithValidRowAsync(string row) =>
+        Processor.ProcessAsync(Serializer.ParseAsync(Utf8($"[{ValidRow}, {row}]")));
+
+    // Each bad row has a valid timestamp, so it's skipped for the field under test and nothing else.
+    [Theory]
+    [InlineData("""{ "accountId": 123, "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": {}, "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": 1, "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "1", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "refund", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": "abc", "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": {}, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": true, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 1e400, "timestamp": "2026-05-10T10:00:00Z" }""")] // too large for decimal
+    [InlineData("1")]
+    [InlineData("\"x\"")]
+    [InlineData("true")]
+    [InlineData("[]")]
+    public async Task WronglyTypedRowIsSkippedWithoutStoppingTheRun(string badRow)
+    {
+        var account = Assert.Single(await ProcessWithValidRowAsync(badRow));
+
+        Assert.Equal("GOOD", account.AccountId);
+        Assert.Equal(1, account.TransactionCount);
+    }
+
+    [Theory]
+    [InlineData("""{ "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "timestamp": "2026-05-10T10:00:00Z" }""")]
+    public async Task RowMissingAccountIdTypeOrAmountIsSkipped(string row)
+    {
+        Assert.Equal("GOOD", Assert.Single(await ProcessWithValidRowAsync(row)).AccountId);
+    }
+
+    // The problem statement's invalid cases don't include the timestamp, and it isn't used in any calculation.
+    [Theory]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10 }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "abc" }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": 123 }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": null }""")]
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "2026-13-45T00:00:00Z" }""")]
+    public async Task MissingOrBadTimestampDoesNotMakeARowInvalid(string row)
+    {
+        var accounts = await ProcessWithValidRowAsync(row);
+
+        Assert.Equal(2, accounts.Count);
+        Assert.Equal(1, accounts.Single(a => a.AccountId == "B").TransactionCount);
+    }
+
+    [Fact]
+    public async Task QuotedNumericAmountAndAnyCasePropertyNamesAreAccepted()
+    {
+        var account = Assert.Single(await Processor.ProcessAsync(Serializer.ParseAsync(Utf8("""
+            [{ "AccountId": "A", "TYPE": "credit", "amount": "10.50", "timestamp": "2026-05-10T10:00:00Z" }]
+            """))));
+
+        Assert.Equal(10.50m, account.TotalCredits);
+    }
+
+    [Fact]
+    public async Task InputOrderDoesNotChangeTheOutput()
+    {
+        // Timestamps are deliberately out of order, as the problem statement allows.
+        string[] rows =
+        [
+            """{ "accountId": "A100", "type": "credit", "amount": 500, "timestamp": "2026-05-10T10:00:00Z" }""",
+            """{ "accountId": "A100", "type": "debit", "amount": 200, "timestamp": "2026-05-10T12:00:00Z" }""",
+            """{ "accountId": "B200", "type": "debit", "amount": 50, "timestamp": "2026-05-10T11:00:00Z" }""",
+            """{ "accountId": "B200", "type": "credit", "amount": 20, "timestamp": "2026-05-10T13:00:00Z" }""",
+            """{ "accountId": "", "type": "credit", "amount": 100, "timestamp": "2026-05-10T14:00:00Z" }""",
+        ];
+
+        var original = await RunAsync($"[{string.Join(",", rows)}]");
+        var reversed = await RunAsync($"[{string.Join(",", rows.Reverse())}]");
+        var rotated = await RunAsync($"[{string.Join(",", rows.Skip(2).Concat(rows.Take(2)))}]");
+
+        Assert.Equal(original, reversed);
+        Assert.Equal(original, rotated);
     }
 
     [Fact]

@@ -5,15 +5,15 @@ namespace AssetMarkOA.Tests;
 
 public class AppTests
 {
-    private const string ValidInput = """[{ "accountId": "A", "type": "credit", "amount": 10 }]""";
+    private const string ValidInput = """[{ "accountId": "A", "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }]""";
 
     // Distinctive IDs and amounts, so a leak into the logs can't be a coincidence.
     // Balance for ACCT-SECRET-1 is 98765.43 - 1234.56 = 97530.87.
     private const string SensitiveInput = """
         [
-          { "accountId": "acct-secret-1", "type": "credit", "amount": 98765.43 },
-          { "accountId": "acct-secret-1", "type": "debit", "amount": 1234.56 },
-          { "accountId": "acct-secret-2", "type": "debit", "amount": 4321.09 }
+          { "accountId": "acct-secret-1", "type": "credit", "amount": 98765.43, "timestamp": "2026-05-10T10:00:00Z" },
+          { "accountId": "acct-secret-1", "type": "debit", "amount": 1234.56, "timestamp": "2026-05-10T11:00:00Z" },
+          { "accountId": "acct-secret-2", "type": "debit", "amount": 4321.09, "timestamp": "2026-05-10T12:00:00Z" }
         ]
         """;
 
@@ -35,6 +35,7 @@ public class AppTests
         var (exitCode, output, error) = await RunAsync([], ValidInput);
 
         Assert.Equal(0, exitCode);
+        Assert.Contains("\"accountId\": \"A\"", output);
         Assert.Contains("\"topSpender\": null", output);
         Assert.Empty(error);
     }
@@ -63,7 +64,6 @@ public class AppTests
     [InlineData("not json")]
     [InlineData("")]
     [InlineData("{}")]
-    [InlineData("""[{ "accountId": "A", "type": "credit", "amount": "abc" }]""")]
     public async Task InvalidJsonReturnsOne(string stdin)
     {
         var (exitCode, output, error) = await RunAsync([], stdin);
@@ -72,6 +72,36 @@ public class AppTests
         Assert.StartsWith("Invalid input at line 1, byte ", error);
         Assert.DoesNotContain("Path:", error); // the JSON path's row index can be wrong when streaming
         Assert.Empty(output);
+    }
+
+    [Fact]
+    public async Task BadRowsAreSkippedAndGoodRowsStillSummarized()
+    {
+        var sink = new TestLogSink();
+
+        var (exitCode, output, error) = await RunAsync([], """
+            [
+              { "accountId": "A", "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" },
+              { "accountId": "A", "type": "credit", "amount": "abc", "timestamp": "2026-05-10T10:00:00Z" },
+              { "accountId": 123, "type": "debit", "amount": 5, "timestamp": "2026-05-10T10:00:00Z" },
+              1,
+              { "accountId": "B", "type": "debit", "amount": 5, "timestamp": "abc" },
+              { "accountId": "C", "type": "debit", "amount": 5, "timestamp": "2026-05-10T10:00:00Z" }
+            ]
+            """, sink);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("\"accountId\": \"A\"", output);
+        Assert.Contains("\"accountId\": \"B\"", output); // a bad timestamp doesn't make a row invalid
+        Assert.Contains("\"accountId\": \"C\"", output);
+        Assert.Equal(
+            [
+                "Row 1 skipped: amount is missing, not a number, or not greater than 0",
+                "Row 2 skipped: account ID is missing, empty or not a string",
+                "Row 3 skipped: account ID is missing, empty or not a string",
+            ],
+            sink.Entries.Where(e => e.Message.StartsWith("Row")).Select(e => e.Message));
     }
 
     [Fact]
@@ -88,7 +118,7 @@ public class AppTests
         var sink = new TestLogSink { MinimumLevel = LogLevel.Debug };
         // The parser reads in chunks of about 16 KB, so the valid rows must span several chunks
         // for some of them to be applied before it reaches the broken part.
-        var validRows = string.Join(",", Enumerable.Repeat("""{ "accountId": "A", "type": "credit", "amount": 10 }""", 2_000));
+        var validRows = string.Join(",", Enumerable.Repeat("""{ "accountId": "A", "type": "credit", "amount": 10, "timestamp": "2026-05-10T10:00:00Z" }""", 2_000));
 
         var input = $$"""[{{validRows}}, { "accountId": "B", oops""";
         var expectedLocation = $"line 1, byte {input.IndexOf("oops") + 1}";

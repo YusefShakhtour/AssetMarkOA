@@ -103,7 +103,7 @@ public class TransactionProcessorTests
             Tx("SECRET-ID", TransactionType.debit, -987.65m)));
 
         var entry = Assert.Single(sink.Entries, e => e.Message.StartsWith("Row"));
-        Assert.Equal("Row 1 skipped: amount must be greater than 0", entry.Message);
+        Assert.Equal("Row 1 skipped: amount is missing, not a number, or not greater than 0", entry.Message);
         Assert.DoesNotContain("SECRET", sink.AllText);
         Assert.DoesNotContain("987", sink.AllText);
     }

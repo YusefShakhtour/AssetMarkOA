@@ -53,14 +53,13 @@ public sealed class TransactionProcessor : ITransactionProcessor {
 
     private static string? GetValidationError(string normalizedAccountId, TransactionModel tx) {
         if (normalizedAccountId.Length == 0) {
-            return "account ID is empty";
+            return "account ID is missing, empty or not a string";
         }
         if (!Enum.IsDefined(tx.Type)) {
-            return "type is missing or unknown";
+            return "type is missing or not credit/debit";
         }
         if (tx.Amount <= 0) {
-            return "amount must be greater than 0";
-        }
-        return null;
+            return "amount is missing, not a number, or not greater than 0";
+        }        return null;
     }
 }
