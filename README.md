@@ -1,4 +1,4 @@
-# AssetMark OA – Transaction Summary
+# AssetMark OA – Transaction Analyzer
 
 Reads a JSON array of transactions and prints a summary for each account, plus the account with the highest total debits (`topSpender`).
 
@@ -9,23 +9,25 @@ Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0). Run
 ```bash
 dotnet run --project src/AssetMarkOA -- src/AssetMarkOA/sample-input.json   # from a file
 cat input.json | dotnet run --project src/AssetMarkOA                       # from stdin
+dotnet run --project src/AssetMarkOA -- all-cases.json                      # one row for every validation rule
 dotnet test                                                                 # run the tests
 ```
 
 - **Output:** stdout contains only the JSON result. Errors go to stderr.
-- **Exit codes:** `0` success, `1` invalid input (including account totals too large to represent, above about 7.9 × 10²⁸), `2` unexpected error, `130` cancelled with Ctrl+C.
+- **Exit codes:** `0` success, `1` invalid input or a missing or unreadable file (invalid input includes account totals too large to represent, above about 7.9 × 10²⁸), `2` unexpected error, `130` cancelled with Ctrl+C.
 - **Logs:** written to `logs/` next to the program (e.g. `src/AssetMarkOA/bin/Debug/net8.0/logs/`).
   - For full detail, set `Serilog__MinimumLevel__Default=Debug`. This writes one line per transaction, so use it only to diagnose a specific run.
   - To write logs somewhere else, set `AssetMarkOA__LogDirectory`.
 
 ## Assumptions
 
-- **Batch tool.** Each run processes one input and exits; nothing is stored between runs. Input is UTF-8 JSON with an array at the top level.
-- **Money is `decimal`.** Amounts can have decimal places and are always positive; `type` decides credit or debit. Every account starts at a balance of 0.
+- **Batch tool.** Each run processes one input and exits; nothing is stored between runs. Input is UTF-8 JSON with an array at the top level; a top-level `null` is treated as an empty list.
+- **Money is `decimal`.** Amounts can have decimal places and must be greater than 0, otherwise the row is skipped; `type` decides credit or debit. Every account starts at a balance of 0.
 - **Valid transaction.** It needs a non-empty `accountId`, a `type` that is the word `credit` or `debit` (any letter case), an `amount` greater than 0, and a valid ISO 8601 `timestamp` (e.g. `2026-05-10T10:00:00Z`).
   - The timestamp rule is deliberately stricter than the problem statement's three invalid cases: a transaction without a correct timestamp is suspect financial data, so it isn't counted.
   - Invalid rows are skipped and not counted. That includes rows with a missing or wrongly typed field (e.g. `"amount": "abc"`) and entries that aren't objects, such as `null`.
-  - Only broken JSON syntax, or a top level that isn't an array, fails the whole run, with exit code 1 and the line and byte where it failed.
+  - A numeric string amount (`"amount": "25"`) is accepted. Financial APIs often send amounts as strings so no precision is lost in transit; a string that isn't a number is still invalid.
+  - Only a missing or unreadable file, broken JSON syntax (reported with the line and byte where it failed), a top level that isn't an array or `null`, or account totals too large to represent fail the whole run, with exit code 1.
 - **Timestamps** are checked but not used in any calculation, so input order doesn't matter.
 - **Account IDs.** IDs are trimmed and matched case-insensitively, so `" a100"` and `"A100"` are one account. The output shows them in uppercase.
 - **No deduplication.** Identical transactions are both counted, because nothing in the input identifies a transaction.
@@ -38,6 +40,8 @@ dotnet test                                                                 # ru
 ## Design choices and tradeoffs
 
 - **Parse, process, summarize, serialize.** Each step is its own class. `TransactionProcessor` and `Account` are the only code that changes state; `AccountSummarizer` only reads accounts and returns immutable records. Accounts are kept in a dictionary keyed by normalized ID, which makes lookups O(1) and duplicates impossible.
+- **Input rules live in the processor.** The parser never rejects a row; it converts each field safely and leaves a placeholder for anything it can't read. Every rule for what makes a transaction valid lives in `TransactionProcessor`, which logs a reason for each skipped row. `Account.Apply` double-checks as a safety net against programming errors, so a future caller that skips the processor can't leave an account's totals inconsistent.
+  - The cost is speed. Each row is read as raw JSON before conversion, so a bad field can't fail the run, which makes a run about 40% slower end to end on very large inputs (1 million rows: about 1.45 s to 2.0 s).
 - **Streamed input, async all the way.** Transactions are parsed and applied as the file is read, so memory grows with the number of accounts, not the size of the input. On a 1-million-row (88 MB) file, peak memory dropped from 519 MB to 66 MB.
   - The cost is that a JSON error is found partway through the run. Output is only written at the end, so the user still sees no partial result.
 - **Standard .NET host.** Dependency injection, `appsettings.json` with environment variable overrides, and Serilog writing to a file only, so stdout stays clean.
