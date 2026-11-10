@@ -31,6 +31,7 @@ public class TransactionProcessorTests
 
     [Theory]
     [InlineData("", TransactionType.credit, 10)]
+    [InlineData("   ", TransactionType.credit, 10)]
     [InlineData("A", TransactionType.credit, 0)]
     [InlineData("A", TransactionType.debit, -10)]
     [InlineData("A", (TransactionType)0, 10)]
@@ -63,5 +64,31 @@ public class TransactionProcessorTests
     public void EmptyInputProducesNoAccounts()
     {
         Assert.Empty(TransactionProcessor.Process([]));
+    }
+
+    [Fact]
+    public void AccountIdsAreTrimmedAndMatchedCaseInsensitively()
+    {
+        var account = Assert.Single(TransactionProcessor.Process([
+            Tx(" a100 ", TransactionType.credit, 10m),
+            Tx("A100", TransactionType.credit, 20m),
+            Tx("a100", TransactionType.debit, 5m),
+        ]));
+
+        Assert.Equal("A100", account.AccountId);
+        Assert.Equal(3, account.TransactionCount);
+        Assert.Equal(25m, account.EndingBalance);
+    }
+
+    [Fact]
+    public void NormalizedIdsDecideSortOrderAndTopSpenderTie()
+    {
+        var accounts = TransactionProcessor.Process([
+            Tx("b", TransactionType.debit, 50m),
+            Tx(" a", TransactionType.debit, 50m),
+        ]);
+
+        Assert.Equal(["A", "B"], AccountSummarizer.Summarize(accounts).Select(s => s.AccountId));
+        Assert.Equal("A", AccountSummarizer.FindTopSpender(accounts));
     }
 }
