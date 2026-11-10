@@ -1,5 +1,5 @@
 namespace AssetMarkOA;
 
 public interface ITransactionProcessor {
-    IReadOnlyList<Account> Process(IEnumerable<TransactionModel> transactions);
+    Task<IReadOnlyList<Account>> ProcessAsync(IAsyncEnumerable<TransactionModel> transactions, CancellationToken cancellationToken = default);
 }

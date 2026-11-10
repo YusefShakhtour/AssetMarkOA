@@ -21,7 +21,14 @@ if (!AppHost.CanWriteTo(logDirectory)) {
     Console.Error.WriteLine($"Warning: logs can't be written to {logDirectory}; set AssetMarkOA__LogDirectory to a writable folder.");
 }
 
+// Ctrl+C cancels the run instead of killing the process, so it stops cleanly and the log file is still flushed.
+using var cancellation = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) => {
+    e.Cancel = true;
+    cancellation.Cancel();
+};
+
 // Disposing the host flushes the log file before the program exits.
 using (host) {
-    return app.Run(args, Console.In, Console.Out, Console.Error);
+    return await app.RunAsync(args, Console.OpenStandardInput(), Console.Out, Console.Error, cancellation.Token);
 }

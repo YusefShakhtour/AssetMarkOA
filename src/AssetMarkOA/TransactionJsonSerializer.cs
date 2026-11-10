@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -36,24 +37,21 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
     // Type is read as a string so an unknown value becomes one invalid row instead of failing the whole input.
     private sealed record RawTransaction(string? AccountId, string? Type, decimal Amount, DateTime Timestamp);
 
-    public IReadOnlyList<TransactionModel> Parse(string json) {
+    // Rows are read and returned one at a time, so memory doesn't grow with the size of the input.
+    // Row count and timing are logged by the processor, because parsing happens inside its loop.
+    public async IAsyncEnumerable<TransactionModel> ParseAsync(Stream input, [EnumeratorCancellation] CancellationToken cancellationToken = default) {
         logger.LogInformation("Parse started");
-        var stopwatch = Stopwatch.StartNew();
 
-        var raw = JsonSerializer.Deserialize<List<RawTransaction?>>(json, ReadOptions) ?? [];
-        var transactions = raw
+        await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable<RawTransaction?>(input, ReadOptions, cancellationToken)) {
             // A null row becomes an empty transaction, so the processor rejects it and row numbers still match the input.
-            .Select(r => r is null ? new TransactionModel() : new TransactionModel {
+            yield return r is null ? new TransactionModel() : new TransactionModel {
                 AccountId = r.AccountId ?? "",
                 // An unknown type leaves default (0), which validation rejects.
                 Type = Enum.TryParse<TransactionType>(r.Type, ignoreCase: true, out var type) ? type : default,
                 Amount = r.Amount,
                 Timestamp = r.Timestamp,
-            })
-            .ToList();
-
-        logger.LogInformation("Parse finished: {RowCount} rows in {ElapsedMs} ms", transactions.Count, stopwatch.ElapsedMilliseconds);
-        return transactions;
+            };
+        }
     }
 
     public string Serialize(IReadOnlyList<AccountSummary> summaries, string? topSpender) {

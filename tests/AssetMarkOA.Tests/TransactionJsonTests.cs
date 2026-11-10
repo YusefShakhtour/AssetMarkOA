@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using static AssetMarkOA.Tests.TestData;
 
@@ -5,16 +7,16 @@ namespace AssetMarkOA.Tests;
 
 public class TransactionJsonTests
 {
-    private static string Run(string inputJson)
+    private static async Task<string> RunAsync(string inputJson)
     {
-        var accounts = Processor.Process(Serializer.Parse(inputJson));
+        var accounts = await Processor.ProcessAsync(Serializer.ParseAsync(Utf8(inputJson)));
         return Serializer.Serialize(
             Summarizer.Summarize(accounts),
             Summarizer.FindTopSpender(accounts));
     }
 
     [Fact]
-    public void SampleInputProducesSampleOutput()
+    public async Task SampleInputProducesSampleOutput()
     {
         const string input = """
             [
@@ -37,7 +39,7 @@ public class TransactionJsonTests
             }
             """;
 
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(Run(input))));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(await RunAsync(input))));
     }
 
     [Theory]
@@ -45,17 +47,17 @@ public class TransactionJsonTests
     [InlineData("DEBIT", TransactionType.debit)]
     [InlineData("refund", (TransactionType)0)]
     [InlineData(null, (TransactionType)0)]
-    public void TypeIsParsedCaseInsensitivelyAndUnknownBecomesInvalid(string? type, TransactionType expected)
+    public async Task TypeIsParsedCaseInsensitivelyAndUnknownBecomesInvalid(string? type, TransactionType expected)
     {
         var typeJson = type is null ? "null" : $"\"{type}\"";
-        var tx = Assert.Single(Serializer.Parse($$"""[{ "accountId": "A", "type": {{typeJson}}, "amount": 10 }]"""));
+        var tx = Assert.Single(await ToListAsync(Serializer.ParseAsync(Utf8($$"""[{ "accountId": "A", "type": {{typeJson}}, "amount": 10 }]"""))));
         Assert.Equal(expected, tx.Type);
     }
 
     [Fact]
-    public void UnknownTypeIsSkippedWithoutFailingOtherRows()
+    public async Task UnknownTypeIsSkippedWithoutFailingOtherRows()
     {
-        var output = JsonNode.Parse(Run("""
+        var output = JsonNode.Parse(await RunAsync("""
             [
               { "accountId": "A", "type": "refund", "amount": 10 },
               { "accountId": "A", "type": "credit", "amount": 5 }
@@ -66,9 +68,9 @@ public class TransactionJsonTests
     }
 
     [Fact]
-    public void FractionalAmountsRoundTripThroughJson()
+    public async Task FractionalAmountsRoundTripThroughJson()
     {
-        var summary = JsonNode.Parse(Run("""
+        var summary = JsonNode.Parse(await RunAsync("""
             [
               { "accountId": "A", "type": "credit", "amount": 19.99 },
               { "accountId": "A", "type": "credit", "amount": 0.01 },
@@ -84,9 +86,9 @@ public class TransactionJsonTests
     }
 
     [Fact]
-    public void AmountsAreWrittenWithTwoDecimalPlaces()
+    public async Task AmountsAreWrittenWithTwoDecimalPlaces()
     {
-        var output = Run("""
+        var output = await RunAsync("""
             [
               { "accountId": "A", "type": "credit", "amount": 500 },
               { "accountId": "A", "type": "debit", "amount": 25.5 },
@@ -99,5 +101,72 @@ public class TransactionJsonTests
         Assert.Contains("\"endingBalance\": 474.50,", output);  // 474.495 rounds half away from zero
         Assert.Contains("\"largestTransaction\": 500.00,", output);
         Assert.Contains("\"transactionCount\": 3,", output);    // ints are unaffected
+    }
+
+    [Fact]
+    public async Task ParsingStreamsInsteadOfReadingTheWholeInputFirst()
+    {
+        var rows = Enumerable.Range(0, 10_000).Select(i => $$"""{ "accountId": "A{{i}}", "type": "credit", "amount": 1 }""");
+        var bytes = Encoding.UTF8.GetBytes($"[{string.Join(",", rows)}]");
+        using var input = new CountingStream(new MemoryStream(bytes));
+
+        await using var transactions = Serializer.ParseAsync(input).GetAsyncEnumerator();
+        Assert.True(await transactions.MoveNextAsync());
+
+        // The first transaction is available after reading only a small part of the input.
+        Assert.True(input.BytesRead < bytes.Length / 10, $"read {input.BytesRead} of {bytes.Length} bytes");
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("[null]")]
+    public async Task EmptyOrNullTopLevelProducesNoAccounts(string json)
+    {
+        Assert.Empty(await Processor.ProcessAsync(Serializer.ParseAsync(Utf8(json))));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("")]
+    public async Task NonArrayTopLevelIsInvalidJson(string json)
+    {
+        await Assert.ThrowsAsync<JsonException>(() => ToListAsync(Serializer.ParseAsync(Utf8(json))));
+    }
+
+    [Fact]
+    public async Task Utf8ByteOrderMarkIsIgnored()
+    {
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes("""[{ "accountId": "A", "type": "credit", "amount": 10 }]""")).ToArray();
+
+        var tx = Assert.Single(await ToListAsync(Serializer.ParseAsync(new MemoryStream(bytes))));
+        Assert.Equal("A", tx.AccountId);
+    }
+
+    // Wraps a stream and counts how many bytes have been read from it.
+    private sealed class CountingStream(Stream inner) : Stream
+    {
+        public long BytesRead { get; private set; }
+
+        public override int Read(byte[] buffer, int offset, int count) => Count(inner.Read(buffer, offset, count));
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            Count(await inner.ReadAsync(buffer, cancellationToken));
+
+        private int Count(int read)
+        {
+            BytesRead += read;
+            return read;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

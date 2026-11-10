@@ -19,19 +19,20 @@ public class AppTests
 
     private static readonly string[] SensitiveValues = ["SECRET", "secret", "98765", "1234.56", "4321", "97530"];
 
-    private static (int ExitCode, string Output, string Error) Run(
-        string[] args, string stdin = "", TestLogSink? sink = null, ITransactionProcessor? processor = null)
+    private static async Task<(int ExitCode, string Output, string Error)> RunAsync(
+        string[] args, string stdin = "", TestLogSink? sink = null, ITransactionProcessor? processor = null,
+        CancellationToken cancellationToken = default)
     {
         var output = new StringWriter();
         var error = new StringWriter();
-        var exitCode = CreateApp(sink, processor).Run(args, new StringReader(stdin), output, error);
+        var exitCode = await CreateApp(sink, processor).RunAsync(args, Utf8(stdin), output, error, cancellationToken);
         return (exitCode, output.ToString(), error.ToString());
     }
 
     [Fact]
-    public void ValidInputFromStdinWritesSummaryAndReturnsZero()
+    public async Task ValidInputFromStdinWritesSummaryAndReturnsZero()
     {
-        var (exitCode, output, error) = Run([], ValidInput);
+        var (exitCode, output, error) = await RunAsync([], ValidInput);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("\"topSpender\": null", output);
@@ -39,14 +40,14 @@ public class AppTests
     }
 
     [Fact]
-    public void ValidInputFromFileReturnsZero()
+    public async Task ValidInputFromFileReturnsZero()
     {
         var path = Path.GetTempFileName();
         try
         {
             File.WriteAllText(path, ValidInput);
 
-            var (exitCode, output, error) = Run([path]);
+            var (exitCode, output, error) = await RunAsync([path]);
 
             Assert.Equal(0, exitCode);
             Assert.Contains("\"accountId\": \"A\"", output);
@@ -61,22 +62,43 @@ public class AppTests
     [Theory]
     [InlineData("not json")]
     [InlineData("")]
+    [InlineData("{}")]
     [InlineData("""[{ "accountId": "A", "type": "credit", "amount": "abc" }]""")]
-    public void InvalidJsonReturnsOne(string stdin)
+    public async Task InvalidJsonReturnsOne(string stdin)
     {
-        var (exitCode, output, error) = Run([], stdin);
+        var (exitCode, output, error) = await RunAsync([], stdin);
 
         Assert.Equal(1, exitCode);
         Assert.StartsWith("Invalid input:", error);
         Assert.Empty(output);
     }
 
+    [Fact]
+    public async Task BrokenJsonAfterValidRowsReturnsOneWithNoOutput()
+    {
+        var sink = new TestLogSink { MinimumLevel = LogLevel.Debug };
+        // The parser reads in chunks of about 16 KB, so the valid rows must span several chunks
+        // for some of them to be applied before it reaches the broken part.
+        var validRows = string.Join(",", Enumerable.Repeat("""{ "accountId": "A", "type": "credit", "amount": 10 }""", 2_000));
+
+        var (exitCode, output, error) = await RunAsync([], $$"""[{{validRows}}, { "accountId": "B", oops""", sink);
+
+        Assert.Equal(1, exitCode);
+        Assert.StartsWith("Invalid input:", error);
+        Assert.Empty(output); // nothing is written until every row is processed
+        // Streaming: rows were applied before the parser reached the broken part.
+        Assert.Contains(sink.Entries, e => e.Message.StartsWith("Row 0 applied"));
+        // When streaming, the JSON path's row index counts from the start of the current chunk, not the input,
+        // so only the byte position reliably locates the error.
+        Assert.Contains(sink.Entries, e => e.Level == LogLevel.Warning && e.Message.StartsWith("Invalid JSON"));
+    }
+
     [Theory]
     [InlineData("does-not-exist.json")]
     [InlineData("")]
-    public void UnreadableFileReturnsOne(string path)
+    public async Task UnreadableFileReturnsOne(string path)
     {
-        var (exitCode, output, error) = Run([path]);
+        var (exitCode, output, error) = await RunAsync([path]);
 
         Assert.Equal(1, exitCode);
         Assert.StartsWith("Could not read input:", error);
@@ -84,11 +106,24 @@ public class AppTests
     }
 
     [Fact]
-    public void DefaultLogLevelLogsNoAccountIdsOrAmounts()
+    public async Task CancelledRunReturns130WithNoOutput()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var (exitCode, output, error) = await RunAsync([], ValidInput, cancellationToken: cancellation.Token);
+
+        Assert.Equal(130, exitCode);
+        Assert.Equal("Cancelled.", error.Trim());
+        Assert.Empty(output);
+    }
+
+    [Fact]
+    public async Task DefaultLogLevelLogsNoAccountIdsOrAmounts()
     {
         var sink = new TestLogSink { MinimumLevel = LogLevel.Information };
 
-        var (exitCode, output, _) = Run([], SensitiveInput, sink);
+        var (exitCode, output, _) = await RunAsync([], SensitiveInput, sink);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("ACCT-SECRET-1", output); // the data was really processed
@@ -100,22 +135,22 @@ public class AppTests
     }
 
     [Fact]
-    public void DebugLogLevelLogsFullDetail()
+    public async Task DebugLogLevelLogsFullDetail()
     {
         var sink = new TestLogSink { MinimumLevel = LogLevel.Debug };
 
-        Run([], SensitiveInput, sink);
+        await RunAsync([], SensitiveInput, sink);
 
         Assert.Contains("ACCT-SECRET-1", sink.AllText);
         Assert.Contains("98765.43", sink.AllText);
     }
 
     [Fact]
-    public void UnexpectedErrorReturnsTwoWithReferenceAndNoDetails()
+    public async Task UnexpectedErrorReturnsTwoWithReferenceAndNoDetails()
     {
         var sink = new TestLogSink { MinimumLevel = LogLevel.Information };
 
-        var (exitCode, output, error) = Run([], ValidInput, sink, new ThrowingProcessor());
+        var (exitCode, output, error) = await RunAsync([], ValidInput, sink, new ThrowingProcessor());
 
         Assert.Equal(2, exitCode);
         Assert.Empty(output);
@@ -125,11 +160,11 @@ public class AppTests
     }
 
     [Fact]
-    public void UnexpectedErrorMessageIsLoggedAtDebug()
+    public async Task UnexpectedErrorMessageIsLoggedAtDebug()
     {
         var sink = new TestLogSink { MinimumLevel = LogLevel.Debug };
 
-        var (_, _, error) = Run([], ValidInput, sink, new ThrowingProcessor());
+        var (_, _, error) = await RunAsync([], ValidInput, sink, new ThrowingProcessor());
 
         Assert.Contains("ACCT-SECRET-1", sink.AllText);
         Assert.DoesNotContain("SECRET", error); // never shown to the user
@@ -137,7 +172,7 @@ public class AppTests
 
     private sealed class ThrowingProcessor : ITransactionProcessor
     {
-        public IReadOnlyList<Account> Process(IEnumerable<TransactionModel> transactions) =>
+        public Task<IReadOnlyList<Account>> ProcessAsync(IAsyncEnumerable<TransactionModel> transactions, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("failure involving ACCT-SECRET-1");
     }
 }

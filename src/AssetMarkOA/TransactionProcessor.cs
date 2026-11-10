@@ -12,7 +12,7 @@ public sealed class TransactionProcessor : ITransactionProcessor {
         this.logger = logger;
     }
 
-    public IReadOnlyList<Account> Process(IEnumerable<TransactionModel> transactions) {
+    public async Task<IReadOnlyList<Account>> ProcessAsync(IAsyncEnumerable<TransactionModel> transactions, CancellationToken cancellationToken = default) {
         logger.LogInformation("Process started");
         var stopwatch = Stopwatch.StartNew();
 
@@ -21,7 +21,8 @@ public sealed class TransactionProcessor : ITransactionProcessor {
         var validCount = 0;
         var skippedCount = 0;
 
-        foreach (var tx in transactions) {
+        await foreach (var tx in transactions.WithCancellation(cancellationToken)) {
+            cancellationToken.ThrowIfCancellationRequested();
             var accountId = NormalizeAccountId(tx.AccountId);
             var validationError = GetValidationError(accountId, tx);
 
@@ -41,7 +42,8 @@ public sealed class TransactionProcessor : ITransactionProcessor {
         }
 
         logger.LogInformation(
-            "Process finished: {ValidCount} valid, {SkippedCount} skipped, {AccountCount} accounts in {ElapsedMs} ms",
+            // Parsing is streamed into this loop, so the elapsed time includes it.
+            "Process finished: {ValidCount} valid, {SkippedCount} skipped, {AccountCount} accounts in {ElapsedMs} ms (including parsing)",
             validCount, skippedCount, accounts.Count, stopwatch.ElapsedMilliseconds);
         return accounts.Values.ToList();
     }

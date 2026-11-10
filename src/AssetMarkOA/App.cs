@@ -19,21 +19,22 @@ public sealed class App {
         this.logger = logger;
     }
 
-    // Exit codes: 0 success, 1 invalid input the user can fix, 2 unexpected error.
+    // Exit codes: 0 success, 1 invalid input the user can fix, 2 unexpected error, 130 cancelled (Ctrl+C).
     // Takes its streams as parameters so tests can run it without the real console.
-    public int Run(string[] args, TextReader input, TextWriter output, TextWriter error) {
+    // `input` is used when no file path is given; the caller owns it and closes it.
+    public async Task<int> RunAsync(string[] args, Stream input, TextWriter output, TextWriter error, CancellationToken cancellationToken = default) {
         var runId = Guid.NewGuid().ToString("N");
         // Every log line written during this run carries the RunId.
         using var scope = logger.BeginScope(new Dictionary<string, object> { ["RunId"] = runId });
         var stopwatch = Stopwatch.StartNew();
 
-        var exitCode = Execute(args, input, output, error, runId);
+        var exitCode = await ExecuteAsync(args, input, output, error, runId, cancellationToken);
 
         logger.LogInformation("Run finished with exit code {ExitCode} in {ElapsedMs} ms", exitCode, stopwatch.ElapsedMilliseconds);
         return exitCode;
     }
 
-    private int Execute(string[] args, TextReader input, TextWriter output, TextWriter error, string runId) {
+    private async Task<int> ExecuteAsync(string[] args, Stream input, TextWriter output, TextWriter error, string runId, CancellationToken cancellationToken) {
         try {
             var fromFile = args.Length > 0;
             logger.LogInformation("Run started, reading input from {InputSource}", fromFile ? "file" : "stdin");
@@ -42,14 +43,20 @@ public sealed class App {
                 logger.LogDebug("Input file: {InputPath}", args[0]);
             }
 
-            var json = fromFile ? File.ReadAllText(args[0]) : input.ReadToEnd();
+            await using var file = fromFile ? OpenInputFile(args[0]) : null;
 
-            var accounts = processor.Process(serializer.Parse(json));
+            // Transactions are parsed and applied one at a time; the input is never held in memory as a whole.
+            // Output is written only after every row is processed, so a failure partway through produces no output.
+            var accounts = await processor.ProcessAsync(serializer.ParseAsync(file ?? input, cancellationToken), cancellationToken);
 
-            output.WriteLine(serializer.Serialize(
+            await output.WriteLineAsync(serializer.Serialize(
                 summarizer.Summarize(accounts),
                 summarizer.FindTopSpender(accounts)));
             return 0;
+        } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+            logger.LogWarning("Run cancelled");
+            await error.WriteLineAsync("Cancelled.");
+            return 130;
         } catch (JsonException ex) {
             // The message can repeat part of the input, so only its location is logged by default.
             logger.LogWarning("Invalid JSON at path {JsonPath}, line {LineNumber}, byte {BytePosition}", ex.Path, ex.LineNumber, ex.BytePositionInLine);
@@ -71,4 +78,8 @@ public sealed class App {
             return 2;
         }
     }
+
+    // Asynchronous, sequential reads: the file is read front to back once.
+    private static FileStream OpenInputFile(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
 }

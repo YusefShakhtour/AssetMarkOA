@@ -5,9 +5,9 @@ namespace AssetMarkOA.Tests;
 public class TransactionProcessorTests
 {
     [Fact]
-    public void EachAccountIdGetsItsOwnAccount()
+    public async Task EachAccountIdGetsItsOwnAccount()
     {
-        var accounts = Processor.Process([
+        var accounts = await ProcessAsync([
             Tx("B", TransactionType.credit, 50m),
             Tx("A", TransactionType.credit, 100m),
             Tx("A", TransactionType.debit, 30m),
@@ -19,9 +19,9 @@ public class TransactionProcessorTests
     }
 
     [Fact]
-    public void RepeatedAccountIdDoesNotCreateDuplicate()
+    public async Task RepeatedAccountIdDoesNotCreateDuplicate()
     {
-        var account = Assert.Single(Processor.Process([
+        var account = Assert.Single(await ProcessAsync([
             Tx("A", TransactionType.credit, 10m),
             Tx("A", TransactionType.credit, 20m),
         ]));
@@ -36,15 +36,15 @@ public class TransactionProcessorTests
     [InlineData("A", TransactionType.debit, -10)]
     [InlineData("A", (TransactionType)0, 10)]
     [InlineData("A", (TransactionType)99, 10)]
-    public void InvalidRowsAreSkippedAndCreateNoAccount(string accountId, TransactionType type, int amount)
+    public async Task InvalidRowsAreSkippedAndCreateNoAccount(string accountId, TransactionType type, int amount)
     {
-        Assert.Empty(Processor.Process([Tx(accountId, type, amount)]));
+        Assert.Empty(await ProcessAsync([Tx(accountId, type, amount)]));
     }
 
     [Fact]
-    public void InvalidRowsAreNotCounted()
+    public async Task InvalidRowsAreNotCounted()
     {
-        var account = Assert.Single(Processor.Process([
+        var account = Assert.Single(await ProcessAsync([
             Tx("A", TransactionType.credit, 10m),
             Tx("A", TransactionType.debit, -500m),
         ]));
@@ -55,21 +55,21 @@ public class TransactionProcessorTests
     }
 
     [Fact]
-    public void SmallestPositiveAmountIsValid()
+    public async Task SmallestPositiveAmountIsValid()
     {
-        Assert.Single(Processor.Process([Tx("A", TransactionType.credit, 0.01m)]));
+        Assert.Single(await ProcessAsync([Tx("A", TransactionType.credit, 0.01m)]));
     }
 
     [Fact]
-    public void EmptyInputProducesNoAccounts()
+    public async Task EmptyInputProducesNoAccounts()
     {
-        Assert.Empty(Processor.Process([]));
+        Assert.Empty(await ProcessAsync([]));
     }
 
     [Fact]
-    public void AccountIdsAreTrimmedAndMatchedCaseInsensitively()
+    public async Task AccountIdsAreTrimmedAndMatchedCaseInsensitively()
     {
-        var account = Assert.Single(Processor.Process([
+        var account = Assert.Single(await ProcessAsync([
             Tx(" a100 ", TransactionType.credit, 10m),
             Tx("A100", TransactionType.credit, 20m),
             Tx("a100", TransactionType.debit, 5m),
@@ -81,9 +81,9 @@ public class TransactionProcessorTests
     }
 
     [Fact]
-    public void NormalizedIdsDecideSortOrderAndTopSpenderTie()
+    public async Task NormalizedIdsDecideSortOrderAndTopSpenderTie()
     {
-        var accounts = Processor.Process([
+        var accounts = await ProcessAsync([
             Tx("b", TransactionType.debit, 50m),
             Tx(" a", TransactionType.debit, 50m),
         ]);
@@ -93,19 +93,28 @@ public class TransactionProcessorTests
     }
 
     [Fact]
-    public void SkippedRowLogsIndexAndReasonWithoutValues()
+    public async Task SkippedRowLogsIndexAndReasonWithoutValues()
     {
         var sink = new TestLogSink();
         var processor = new TransactionProcessor(new TestLogger<TransactionProcessor>(sink));
 
-        processor.Process([
+        await processor.ProcessAsync(AsyncOf(
             Tx("SECRET-ID", TransactionType.credit, 10m),
-            Tx("SECRET-ID", TransactionType.debit, -987.65m),
-        ]);
+            Tx("SECRET-ID", TransactionType.debit, -987.65m)));
 
         var entry = Assert.Single(sink.Entries, e => e.Message.StartsWith("Row"));
         Assert.Equal("Row 1 skipped: amount must be greater than 0", entry.Message);
         Assert.DoesNotContain("SECRET", sink.AllText);
         Assert.DoesNotContain("987", sink.AllText);
+    }
+
+    [Fact]
+    public async Task CancellationStopsProcessing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Processor.ProcessAsync(AsyncOf(Tx("A", TransactionType.credit, 10m)), cancellation.Token));
     }
 }

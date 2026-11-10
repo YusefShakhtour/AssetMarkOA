@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -31,5 +32,31 @@ internal static class TestData
             account.Apply(Tx(accountId, type, amount));
         }
         return account;
+    }
+
+    // Runs the shared processor over in-memory transactions.
+    public static Task<IReadOnlyList<Account>> ProcessAsync(TransactionModel[] transactions) =>
+        Processor.ProcessAsync(AsyncOf(transactions));
+
+    public static MemoryStream Utf8(string json) => new(Encoding.UTF8.GetBytes(json));
+
+    // .NET 8 has no built-in way to turn an array into an IAsyncEnumerable, or back into a list.
+    public static async IAsyncEnumerable<TransactionModel> AsyncOf(params TransactionModel[] transactions)
+    {
+        foreach (var tx in transactions)
+        {
+            yield return tx;
+        }
+        await Task.CompletedTask;
+    }
+
+    public static async Task<List<T>> ToListAsync<T>(IAsyncEnumerable<T> source)
+    {
+        var list = new List<T>();
+        await foreach (var item in source)
+        {
+            list.Add(item);
+        }
+        return list;
     }
 }
