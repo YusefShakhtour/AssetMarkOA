@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -17,8 +18,7 @@ public static class AppHost {
             ContentRootPath = AppContext.BaseDirectory,
         });
 
-        // Relative to the program, not the current directory, so logs never land in the user's folder.
-        var logDirectory = Path.Combine(AppContext.BaseDirectory, builder.Configuration["AssetMarkOA:LogDirectory"] ?? "logs");
+        var logDirectory = ResolveLogDirectory(builder.Configuration);
         var serilog = new LoggerConfiguration()
             .ReadFrom.Configuration(builder.Configuration)
             .Enrich.FromLogContext()
@@ -40,5 +40,23 @@ public static class AppHost {
         builder.Services.AddSingleton<App>();
 
         return builder.Build();
+    }
+
+    // A relative setting is resolved against the program's folder, not the current directory,
+    // so logs never land in the user's folder. An absolute setting is used as is.
+    public static string ResolveLogDirectory(IConfiguration configuration) =>
+        Path.Combine(AppContext.BaseDirectory, configuration["AssetMarkOA:LogDirectory"] ?? "logs");
+
+    // Serilog silently drops log entries when it can't write, so this is checked once at startup.
+    public static bool CanWriteTo(string directory) {
+        try {
+            Directory.CreateDirectory(directory);
+            var probe = Path.Combine(directory, $".write-test-{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+            return false;
+        }
     }
 }
