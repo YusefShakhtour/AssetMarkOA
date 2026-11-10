@@ -42,6 +42,19 @@ public class TransactionProcessorTests
     }
 
     [Fact]
+    public async Task MissingTimestampIsSkipped()
+    {
+        var sink = new TestLogSink();
+        var processor = new TransactionProcessor(new TestLogger<TransactionProcessor>(sink));
+
+        var accounts = await processor.ProcessAsync(AsyncOf(
+            new TransactionModel { AccountId = "A", Type = TransactionType.credit, Amount = 10m }));
+
+        Assert.Empty(accounts);
+        Assert.Contains(sink.Entries, e => e.Message == "Row 0 skipped: timestamp is missing or not a valid ISO 8601 date");
+    }
+
+    [Fact]
     public async Task InvalidRowsAreNotCounted()
     {
         var account = Assert.Single(await ProcessAsync([

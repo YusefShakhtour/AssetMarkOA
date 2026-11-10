@@ -173,19 +173,28 @@ public class TransactionJsonTests
         Assert.Equal("GOOD", Assert.Single(await ProcessWithValidRowAsync(row)).AccountId);
     }
 
-    // The problem statement's invalid cases don't include the timestamp, and it isn't used in any calculation.
+    // Stricter than the problem statement's three invalid cases: a missing or invalid timestamp also makes a row invalid.
     [Theory]
     [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10 }""")]
     [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "abc" }""")]
     [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": 123 }""")]
     [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": null }""")]
     [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "2026-13-45T00:00:00Z" }""")]
-    public async Task MissingOrBadTimestampDoesNotMakeARowInvalid(string row)
+    [InlineData("""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "05/10/2026" }""")] // not ISO 8601
+    public async Task MissingOrBadTimestampIsSkipped(string row)
     {
-        var accounts = await ProcessWithValidRowAsync(row);
+        Assert.Equal("GOOD", Assert.Single(await ProcessWithValidRowAsync(row)).AccountId);
+    }
+
+    [Theory]
+    [InlineData("2026-05-10T10:00:00Z")]
+    [InlineData("2026-05-10T10:00:00.123+02:00")]
+    [InlineData("2026-05-10")]
+    public async Task IsoTimestampsAreAccepted(string timestamp)
+    {
+        var accounts = await ProcessWithValidRowAsync($$"""{ "accountId": "B", "type": "credit", "amount": 10, "timestamp": "{{timestamp}}" }""");
 
         Assert.Equal(2, accounts.Count);
-        Assert.Equal(1, accounts.Single(a => a.AccountId == "B").TransactionCount);
     }
 
     [Fact]

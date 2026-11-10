@@ -93,13 +93,14 @@ public class AppTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains("\"accountId\": \"A\"", output);
-        Assert.Contains("\"accountId\": \"B\"", output); // a bad timestamp doesn't make a row invalid
+        Assert.DoesNotContain("\"accountId\": \"B\"", output); // a bad timestamp makes the row invalid
         Assert.Contains("\"accountId\": \"C\"", output);
         Assert.Equal(
             [
                 "Row 1 skipped: amount is missing, not a number, or not greater than 0",
                 "Row 2 skipped: account ID is missing, empty or not a string",
                 "Row 3 skipped: account ID is missing, empty or not a string",
+                "Row 4 skipped: timestamp is missing or not a valid ISO 8601 date",
             ],
             sink.Entries.Where(e => e.Message.StartsWith("Row")).Select(e => e.Message));
     }

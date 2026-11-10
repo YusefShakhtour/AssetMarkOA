@@ -60,6 +60,11 @@ public sealed class TransactionProcessor : ITransactionProcessor {
         }
         if (tx.Amount <= 0) {
             return "amount is missing, not a number, or not greater than 0";
-        }        return null;
+        }
+        // Stricter than the problem statement's three invalid cases: a transaction without a correct timestamp is suspect data.
+        if (tx.Timestamp is null) {
+            return "timestamp is missing or not a valid ISO 8601 date";
+        }
+        return null;
     }
 }

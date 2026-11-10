@@ -61,9 +61,8 @@ public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
             AccountId = raw.AccountId.ValueKind == JsonValueKind.String ? raw.AccountId.GetString()! : "",
             Type = ReadType(raw.Type),
             Amount = ReadAmount(raw.Amount),
-            // Not part of the problem statement's definition of an invalid transaction, and not used in any calculation,
-            // so a missing or bad timestamp is left at the default instead of invalidating the row.
-            Timestamp = raw.Timestamp.ValueKind == JsonValueKind.String && raw.Timestamp.TryGetDateTime(out var timestamp) ? timestamp : default,
+            // ISO 8601 (e.g. 2026-05-10T10:00:00Z). Missing, not a string, or not a valid date leaves null, which validation rejects.
+            Timestamp = raw.Timestamp.ValueKind == JsonValueKind.String && raw.Timestamp.TryGetDateTime(out var timestamp) ? timestamp : null,
         };
     }
 

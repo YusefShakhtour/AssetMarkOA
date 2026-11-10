@@ -20,8 +20,9 @@ internal static class TestData
     private static ILogger<T> Logger<T>(TestLogSink? sink) =>
         sink is null ? NullLogger<T>.Instance : new TestLogger<T>(sink);
 
+    // A valid timestamp by default, since a transaction without one is invalid.
     public static TransactionModel Tx(string accountId, TransactionType type, decimal amount) =>
-        new() { AccountId = accountId, Type = type, Amount = amount };
+        new() { AccountId = accountId, Type = type, Amount = amount, Timestamp = new DateTime(2026, 5, 10, 10, 0, 0, DateTimeKind.Utc) };
 
     // Builds an account directly, without the processor, so summarizer tests control the input exactly.
     public static Account AccountWith(string accountId, params (TransactionType Type, decimal Amount)[] transactions)
