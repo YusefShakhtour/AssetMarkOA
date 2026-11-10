@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace AssetMarkOA;
 
-public static class TransactionJson {
+public sealed class TransactionJsonSerializer : ITransactionJsonSerializer {
     // Web defaults: camelCase names when writing, case-insensitive names when reading.
     private static readonly JsonSerializerOptions ReadOptions = new(JsonSerializerDefaults.Web);
 
@@ -27,7 +27,7 @@ public static class TransactionJson {
     // Type is read as a string so an unknown value becomes one invalid row instead of failing the whole input.
     private sealed record RawTransaction(string? AccountId, string? Type, decimal Amount, DateTime Timestamp);
 
-    public static List<TransactionModel> Parse(string json) {
+    public IReadOnlyList<TransactionModel> Parse(string json) {
         var raw = JsonSerializer.Deserialize<List<RawTransaction?>>(json, ReadOptions) ?? [];
         return raw
             .Where(r => r is not null)
@@ -41,6 +41,6 @@ public static class TransactionJson {
             .ToList();
     }
 
-    public static string Serialize(IReadOnlyList<AccountSummary> summaries, string? topSpender) =>
+    public string Serialize(IReadOnlyList<AccountSummary> summaries, string? topSpender) =>
         JsonSerializer.Serialize(new { summaries, topSpender }, WriteOptions);
 }

@@ -1,8 +1,8 @@
 namespace AssetMarkOA;
 
-public static class TransactionProcessor {
+public sealed class TransactionProcessor : ITransactionProcessor {
 
-    public static IReadOnlyList<Account> Process(IEnumerable<TransactionModel> transactions) {
+    public IReadOnlyList<Account> Process(IEnumerable<TransactionModel> transactions) {
         var accounts = new Dictionary<string, Account>();
         foreach (var tx in transactions) {
             var accountId = NormalizeAccountId(tx.AccountId);

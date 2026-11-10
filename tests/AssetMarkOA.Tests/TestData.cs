@@ -2,6 +2,14 @@ namespace AssetMarkOA.Tests;
 
 internal static class TestData
 {
+    public static readonly TransactionJsonSerializer Serializer = new();
+    public static readonly TransactionProcessor Processor = new();
+    public static readonly AccountSummarizer Summarizer = new();
+
+    // The real App wiring; pass a processor to replace the real one.
+    public static App CreateApp(ITransactionProcessor? processor = null) =>
+        new(new TransactionJsonSerializer(), processor ?? new TransactionProcessor(), new AccountSummarizer());
+
     public static TransactionModel Tx(string accountId, TransactionType type, decimal amount) =>
         new() { AccountId = accountId, Type = type, Amount = amount };
 

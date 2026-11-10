@@ -7,7 +7,7 @@ public class TransactionProcessorTests
     [Fact]
     public void EachAccountIdGetsItsOwnAccount()
     {
-        var accounts = TransactionProcessor.Process([
+        var accounts = Processor.Process([
             Tx("B", TransactionType.credit, 50m),
             Tx("A", TransactionType.credit, 100m),
             Tx("A", TransactionType.debit, 30m),
@@ -21,7 +21,7 @@ public class TransactionProcessorTests
     [Fact]
     public void RepeatedAccountIdDoesNotCreateDuplicate()
     {
-        var account = Assert.Single(TransactionProcessor.Process([
+        var account = Assert.Single(Processor.Process([
             Tx("A", TransactionType.credit, 10m),
             Tx("A", TransactionType.credit, 20m),
         ]));
@@ -38,13 +38,13 @@ public class TransactionProcessorTests
     [InlineData("A", (TransactionType)99, 10)]
     public void InvalidRowsAreSkippedAndCreateNoAccount(string accountId, TransactionType type, int amount)
     {
-        Assert.Empty(TransactionProcessor.Process([Tx(accountId, type, amount)]));
+        Assert.Empty(Processor.Process([Tx(accountId, type, amount)]));
     }
 
     [Fact]
     public void InvalidRowsAreNotCounted()
     {
-        var account = Assert.Single(TransactionProcessor.Process([
+        var account = Assert.Single(Processor.Process([
             Tx("A", TransactionType.credit, 10m),
             Tx("A", TransactionType.debit, -500m),
         ]));
@@ -57,19 +57,19 @@ public class TransactionProcessorTests
     [Fact]
     public void SmallestPositiveAmountIsValid()
     {
-        Assert.Single(TransactionProcessor.Process([Tx("A", TransactionType.credit, 0.01m)]));
+        Assert.Single(Processor.Process([Tx("A", TransactionType.credit, 0.01m)]));
     }
 
     [Fact]
     public void EmptyInputProducesNoAccounts()
     {
-        Assert.Empty(TransactionProcessor.Process([]));
+        Assert.Empty(Processor.Process([]));
     }
 
     [Fact]
     public void AccountIdsAreTrimmedAndMatchedCaseInsensitively()
     {
-        var account = Assert.Single(TransactionProcessor.Process([
+        var account = Assert.Single(Processor.Process([
             Tx(" a100 ", TransactionType.credit, 10m),
             Tx("A100", TransactionType.credit, 20m),
             Tx("a100", TransactionType.debit, 5m),
@@ -83,12 +83,12 @@ public class TransactionProcessorTests
     [Fact]
     public void NormalizedIdsDecideSortOrderAndTopSpenderTie()
     {
-        var accounts = TransactionProcessor.Process([
+        var accounts = Processor.Process([
             Tx("b", TransactionType.debit, 50m),
             Tx(" a", TransactionType.debit, 50m),
         ]);
 
-        Assert.Equal(["A", "B"], AccountSummarizer.Summarize(accounts).Select(s => s.AccountId));
-        Assert.Equal("A", AccountSummarizer.FindTopSpender(accounts));
+        Assert.Equal(["A", "B"], Summarizer.Summarize(accounts).Select(s => s.AccountId));
+        Assert.Equal("A", Summarizer.FindTopSpender(accounts));
     }
 }

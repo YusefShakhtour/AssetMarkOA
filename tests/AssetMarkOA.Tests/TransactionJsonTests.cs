@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using static AssetMarkOA.Tests.TestData;
 
 namespace AssetMarkOA.Tests;
 
@@ -6,10 +7,10 @@ public class TransactionJsonTests
 {
     private static string Run(string inputJson)
     {
-        var accounts = TransactionProcessor.Process(TransactionJson.Parse(inputJson));
-        return TransactionJson.Serialize(
-            AccountSummarizer.Summarize(accounts),
-            AccountSummarizer.FindTopSpender(accounts));
+        var accounts = Processor.Process(Serializer.Parse(inputJson));
+        return Serializer.Serialize(
+            Summarizer.Summarize(accounts),
+            Summarizer.FindTopSpender(accounts));
     }
 
     [Fact]
@@ -47,7 +48,7 @@ public class TransactionJsonTests
     public void TypeIsParsedCaseInsensitivelyAndUnknownBecomesInvalid(string? type, TransactionType expected)
     {
         var typeJson = type is null ? "null" : $"\"{type}\"";
-        var tx = Assert.Single(TransactionJson.Parse($$"""[{ "accountId": "A", "type": {{typeJson}}, "amount": 10 }]"""));
+        var tx = Assert.Single(Serializer.Parse($$"""[{ "accountId": "A", "type": {{typeJson}}, "amount": 10 }]"""));
         Assert.Equal(expected, tx.Type);
     }
 
